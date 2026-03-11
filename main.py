@@ -1,15 +1,16 @@
 import os
 
-import torch
-from facenet_pytorch import MTCNN
-from PIL import Image
-import os
 import matplotlib.pyplot as plt
+import torch
+import torch.nn as nn
+from PIL import Image
+from facenet_pytorch import MTCNN
 from torch.utils.data import DataLoader
+from torchmetrics.image.fid import FrechetInceptionDistance
+from torchmetrics.image.inception import InceptionScore
+from torchvision import transforms, datasets
 from torchvision.utils import save_image
 from tqdm import tqdm
-from torchvision import transforms, datasets
-import torch.nn as nn
 
 
 class VAE(nn.Module):
@@ -83,20 +84,20 @@ def vae_loss(recon, x, mu, logvar):
 if __name__ == "__main__":
 
     # load dataset
-    # os.system("kaggle datasets download -d jessicali9530/celeba-dataset")
-    # os.system("unzip celeba-dataset.zip")
+    os.system("kaggle datasets download -d jessicali9530/celeba-dataset")
+    os.system("unzip celeba-dataset.zip")
 
     # crop
-    # detector = MTCNN(image_size=64, device='cuda')
-    # for img_name in tqdm(os.listdir("img_align_celeba/img_align_celeba")):
-    #     img = Image.open(f"img_align_celeba/img_align_celeba/{img_name}").convert("RGB")
-    #     face = detector(img)
-    #     if face is not None:
-    #         face = face.permute(1,2,0).cpu().numpy()
-    #         face = ((face + 1) / 2 * 255).astype('uint8')
-    #         Image.fromarray(face).save(f"faces/train/{img_name}")
-    #     else:
-    #         print(f"{img_name}: face not found")
+    detector = MTCNN(image_size=64, device='cuda')
+    for img_name in tqdm(os.listdir("img_align_celeba/img_align_celeba")):
+        img = Image.open(f"img_align_celeba/img_align_celeba/{img_name}").convert("RGB")
+        face = detector(img)
+        if face is not None:
+            face = face.permute(1, 2, 0).cpu().numpy()
+            face = ((face + 1) / 2 * 255).astype('uint8')
+            Image.fromarray(face).save(f"faces/train/{img_name}")
+        else:
+            print(f"{img_name}: face not found")
 
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -142,3 +143,37 @@ if __name__ == "__main__":
     plt.ylabel("Loss")
     plt.title("VAE Training Loss")
     plt.show()
+
+    # vae = VAE().to("cuda")
+    # vae.load_state_dict(torch.load("best_vae.pth"))
+    # vae.eval()
+
+    fid = FrechetInceptionDistance(feature=2048).to("cuda")
+    is_score = InceptionScore().to("cuda")
+    eval_loader = DataLoader(
+        dataset,
+        batch_size=128,
+        shuffle=False
+    )
+    num_gen = 0
+    with torch.no_grad():
+        for imgs, _ in eval_loader:
+            imgs = imgs.to("cuda")
+            real = (imgs + 1) / 2
+            real = torch.nn.functional.interpolate(real, size=(299, 299))
+            real = (real * 255).clamp(0, 255).to(torch.uint8)
+            fid.update(real, real=True)
+            z = torch.randn(imgs.size(0), 256).to("cuda")
+            fake = vae.decode(z)
+            fake = (fake + 1) / 2
+            fake = torch.nn.functional.interpolate(fake, size=(299, 299))
+            fake = (fake * 255).clamp(0, 255).to(torch.uint8)
+            fid.update(fake, real=False)
+            is_score.update(fake)
+            num_gen += imgs.size(0)
+            if num_gen >= 10000:
+                break
+    fid_value = fid.compute()
+    is_mean, is_std = is_score.compute()
+    print(f"FID: {fid_value:.4f}")
+    print(f"IS: {is_mean:.4f} ± {is_std:.4f}")
