@@ -114,76 +114,76 @@ if __name__ == "__main__":
         csv_file="list_attr_celeba.csv",
         transform=transform
     )
-    loader = DataLoader(
-        dataset,
-        batch_size=128,
-        shuffle=True,
-    )
-    vae = VAE().to("cuda")
-    optimizer = torch.optim.Adam(vae.parameters(), lr=0.0002)
-    loss_history = []
-    best_loss = float('inf')
-    epochs = 30
-    for epoch in range(epochs):
-        epoch_loss = 0
-        for imgs, male in tqdm(loader, desc=f"Epoch {epoch + 1}/{epochs}"):
-            imgs = imgs.to("cuda")
-            male = male.to("cuda")
-            optimizer.zero_grad()
-            recon, mu, logvar = vae(imgs, male)
-            loss = vae_loss(recon, imgs, mu, logvar)
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
-        epoch_loss /= len(dataset)
-        loss_history.append(epoch_loss)
-        print(f"Epoch {epoch + 1}, Loss: {epoch_loss:.2f}")
-        if epoch_loss < best_loss:
-            best_loss = epoch_loss
-            torch.save(vae.state_dict(), "best_cvae.pth")
-        with torch.no_grad():
-            z = torch.randn(64, 256).to("cuda")
-            c = torch.zeros(64, 1).to("cuda")
-            samples = vae.decode(z, c)
-            save_image(samples, f"samples_{epoch + 1}.png", normalize=True)
-
-    plt.plot(loss_history)
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.title("VAE Training Loss")
-    plt.show()
-
-    # vae = VAE().to("cuda")
-    # vae.load_state_dict(torch.load("best_vae.pth"))
-    # vae.eval()
-
-    # fid = FrechetInceptionDistance(feature=2048).to("cuda")
-    # is_score = InceptionScore().to("cuda")
-    # eval_loader = DataLoader(
+    # loader = DataLoader(
     #     dataset,
     #     batch_size=128,
-    #     shuffle=False
+    #     shuffle=True,
     # )
-    # num_gen = 0
-    # with torch.no_grad():
-    #     for imgs, _ in eval_loader:
+    # vae = VAE().to("cuda")
+    # optimizer = torch.optim.Adam(vae.parameters(), lr=0.0002)
+    # loss_history = []
+    # best_loss = float('inf')
+    # epochs = 30
+    # for epoch in range(epochs):
+    #     epoch_loss = 0
+    #     for imgs, male in tqdm(loader, desc=f"Epoch {epoch + 1}/{epochs}"):
     #         imgs = imgs.to("cuda")
-    #         real = (imgs + 1) / 2
-    #         real = torch.nn.functional.interpolate(real, size=(299, 299))
-    #         real = (real * 255).clamp(0, 255).to(torch.uint8)
-    #         fid.update(real, real=True)
-    #         z = torch.randn(imgs.size(0), 256).to("cuda")
-    #         cond = torch.randint(0, 2, (imgs.size(0), 1)).float().to("cuda")
-    #         fake = vae.decode(z, cond)
-    #         fake = (fake + 1) / 2
-    #         fake = torch.nn.functional.interpolate(fake, size=(299, 299))
-    #         fake = (fake * 255).clamp(0, 255).to(torch.uint8)
-    #         fid.update(fake, real=False)
-    #         is_score.update(fake)
-    #         num_gen += imgs.size(0)
-    #         if num_gen >= 10000:
-    #             break
-    # fid_value = fid.compute()
-    # is_mean, is_std = is_score.compute()
-    # print(f"FID: {fid_value:.4f}")
-    # print(f"IS: {is_mean:.4f} ± {is_std:.4f}")
+    #         male = male.to("cuda")
+    #         optimizer.zero_grad()
+    #         recon, mu, logvar = vae(imgs, male)
+    #         loss = vae_loss(recon, imgs, mu, logvar)
+    #         loss.backward()
+    #         optimizer.step()
+    #         epoch_loss += loss.item()
+    #     epoch_loss /= len(dataset)
+    #     loss_history.append(epoch_loss)
+    #     print(f"Epoch {epoch + 1}, Loss: {epoch_loss:.2f}")
+    #     if epoch_loss < best_loss:
+    #         best_loss = epoch_loss
+    #         torch.save(vae.state_dict(), "best_cvae.pth")
+    #     with torch.no_grad():
+    #         z = torch.randn(64, 256).to("cuda")
+    #         c = torch.ones(64, 1).to("cuda")
+    #         samples = vae.decode(z, c)
+    #         save_image(samples, f"samples_{epoch + 1}.png", normalize=True)
+    #
+    # plt.plot(loss_history)
+    # plt.xlabel("Epoch")
+    # plt.ylabel("Loss")
+    # plt.title("VAE Training Loss")
+    # plt.show()
+
+    vae = VAE().to("cuda")
+    vae.load_state_dict(torch.load("best_cvae.pth"))
+    vae.eval()
+    #
+    fid = FrechetInceptionDistance(feature=2048).to("cuda")
+    is_score = InceptionScore().to("cuda")
+    eval_loader = DataLoader(
+        dataset,
+        batch_size=128,
+        shuffle=False
+    )
+    num_gen = 0
+    with torch.no_grad():
+        for imgs, _ in eval_loader:
+            imgs = imgs.to("cuda")
+            real = (imgs + 1) / 2
+            real = torch.nn.functional.interpolate(real, size=(299, 299))
+            real = (real * 255).clamp(0, 255).to(torch.uint8)
+            fid.update(real, real=True)
+            z = torch.randn(imgs.size(0), 256).to("cuda")
+            cond = torch.randint(0, 2, (imgs.size(0), 1)).float().to("cuda")
+            fake = vae.decode(z, cond)
+            fake = (fake + 1) / 2
+            fake = torch.nn.functional.interpolate(fake, size=(299, 299))
+            fake = (fake * 255).clamp(0, 255).to(torch.uint8)
+            fid.update(fake, real=False)
+            is_score.update(fake)
+            num_gen += imgs.size(0)
+            if num_gen >= 10000:
+                break
+    fid_value = fid.compute()
+    is_mean, is_std = is_score.compute()
+    print(f"FID: {fid_value:.4f}")
+    print(f"IS: {is_mean:.4f} ± {is_std:.4f}")
